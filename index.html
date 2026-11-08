@@ -110,6 +110,7 @@ td.zero{color:var(--muted)}
 .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
 .tag.receita{background:color-mix(in srgb,var(--receita) 15%,transparent);color:var(--receita)}
 .tag.despesa{background:color-mix(in srgb,var(--despesa) 15%,transparent);color:var(--despesa)}
+.tag.terceiros{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
 .tag.investimento{background:color-mix(in srgb,var(--invest) 15%,transparent);color:var(--invest)}
 
 /* lista de lançamentos */
@@ -242,7 +243,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const M3 = MESES.map(m => m.slice(0,3));
-const TIPO_LABEL = {receita:"Receita", despesa:"Despesa", investimento:"Investimento"};
+const TIPO_LABEL = {receita:"Receita", despesa:"Despesa", investimento:"Investimento", terceiros:"Terceiros"};
 const fmt = new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"});
 const brl = v => fmt.format(v || 0);
 const pct = v => (v==null||!isFinite(v)) ? "–" : (v*100).toFixed(1).replace(".",",")+"%";
@@ -355,11 +356,11 @@ function movimentos(){
 }
 function agregados(){
   const mv=movimentos();
-  const porCat={}, porForma={}, tipoMes={receita:Array(13).fill(0),despesa:Array(13).fill(0),investimento:Array(13).fill(0)};
+  const porCat={}, porForma={}, tipoMes={receita:Array(13).fill(0),despesa:Array(13).fill(0),investimento:Array(13).fill(0),terceiros:Array(13).fill(0)};
   for (const x of mv){
     const c=catById(x.cat); if (!c) continue;
     (porCat[c.id] ||= Array(13).fill(0))[x.mes]+=x.valor;
-    tipoMes[c.tipo][x.mes]+=x.valor;
+    (tipoMes[c.tipo]||tipoMes.despesa)[x.mes]+=x.valor;
     if (c.tipo!=="receita" && x.forma!=null) (porForma[x.forma] ||= Array(13).fill(0))[x.mes]+=x.valor;
   }
   const res=Array(13).fill(0), saldo=Array(13).fill(0);
@@ -394,7 +395,7 @@ function painel(){
   const tx = rec ? (rec-des)/rec : null;
   const recA=sum(A.tipoMes.receita), desA=sum(A.tipoMes.despesa), invA=sum(A.tipoMes.investimento);
   const semFech = S.formas.some(f=>f.tipo==="cartao" && f.fechamento==null);
-  const gs=grupos().filter(g=>S.cats.some(c=>c.grupo===g && c.tipo!=="receita"));
+  const gs=grupos().filter(g=>S.cats.some(c=>c.grupo===g && (c.tipo==="despesa"||c.tipo==="investimento")));
   const rows=gs.map(g=>{ const cs=S.cats.filter(c=>c.grupo===g); const orc=sum(cs.map(c=>Number(c.orcamento||0))); const real=sum(cs.map(c=>(A.porCat[c.id]||[])[m]||0)); return {g,orc,real}; }).filter(r=>r.orc||r.real);
   const top = Object.entries(A.porCat).map(([id,a])=>({c:catById(Number(id)),v:a[m]})).filter(x=>x.c&&x.c.tipo==="despesa"&&x.v>0).sort((a,b)=>b.v-a.v).slice(0,6);
   $("#view").innerHTML = `
@@ -493,7 +494,8 @@ function editLanc(l){
     if (!v||!d){ $("#fPrev").textContent="Estorno ou reembolso: use valor negativo na mesma categoria da compra."; return; }
     const i0=idxCobranca({data:d,forma_id:fo}); const ct=contaById(Number($("#fConta").value)), rec=catById(Number($("#fCat").value))?.tipo==="receita";
     const onde = card ? (formaById(fo).conta_id?` A fatura é paga pela conta ${esc(contaById(formaById(fo).conta_id)?.nome||"")}.`:"") : (ct?` ${rec?"Entra na":"Sai da"} conta <b>${esc(ct.nome)}</b>.`:" Não mexe no saldo de nenhuma conta.");
-    $("#fPrev").innerHTML = (n>1 ? `${n} parcelas de <b>${brl(v/n)}</b>, de ${nomeIdx(i0)} a ${nomeIdx(i0+n-1)}.` : `Entra em <b>${nomeIdx(i0)}</b>${card?" (mês da fatura)":""}.`) + onde; };
+    const terc=catById(Number($("#fCat").value))?.tipo==="terceiros";
+    $("#fPrev").innerHTML = (terc?"Gasto de outra pessoa: não entra nas suas despesas. Quando te devolverem, lance com <b>valor negativo</b> nesta categoria, na conta onde o dinheiro entrou.<br>":"") + (n>1 ? `${n} parcelas de <b>${brl(v/n)}</b>, de ${nomeIdx(i0)} a ${nomeIdx(i0+n-1)}.` : `Entra em <b>${nomeIdx(i0)}</b>${card?" (mês da fatura)":""}.`) + onde; };
   ["fValor","fParc","fForma","fData","fConta","fCat"].forEach(id=>$("#"+id).addEventListener("input",prev)); prev();
   $("#fCancel").onclick=()=>$("#dlg").close();
   if (!isNew) $("#fDel").onclick=async()=>{ if ($("#fDel").dataset.sure!=="1"){ $("#fDel").dataset.sure="1"; $("#fDel").innerHTML=ICON.trash+"Confirmar"; return; } const {error}=await sb.from("lancamentos").delete().eq("id",l.id); if (error) return fail(error); S.lanc=S.lanc.filter(x=>x.id!==l.id); $("#dlg").close(); toast("Lançamento excluído"); render(); };
@@ -561,6 +563,7 @@ function resumo(){
   let body="";
   const linha=(lab,arr,cls="")=>`<tr class="${cls}"><td class="first">${lab}</td><td class="n"></td>${arr.slice(1).map(v=>`<td class="n ${v<0?"neg":""}">${brl(v)}</td>`).join("")}<td class="n">${brl(sum(arr))}</td><td class="n">${rec?pct(sum(arr)/rec):"–"}</td></tr>`;
   body+=linha("Receitas",A.tipoMes.receita)+linha("Despesas",A.tipoMes.despesa)+linha("Investimentos",A.tipoMes.investimento)+linha("Sobrou no mês",A.res,"tot");
+  if (A.tipoMes.terceiros.some(v=>v)) body+=linha("Terceiros (gasto por outros − devolvido)",A.tipoMes.terceiros);
   body+=`<tr><td class="first">Saldo acumulado</td><td></td>${A.saldo.slice(1).map(v=>`<td class="n ${v<0?"neg":""}">${brl(v)}</td>`).join("")}<td class="n">${brl(A.saldo[12])}</td><td></td></tr>`;
   for (const g of grupos()){
     const cs=S.cats.filter(c=>c.grupo===g); const ga=Array(13).fill(0); cs.forEach(c=>(A.porCat[c.id]||[]).forEach((v,i)=>ga[i]+=v)); const gorc=sum(cs.map(c=>Number(c.orcamento||0)));
@@ -651,6 +654,7 @@ function contas(){
   const sel=contaById(S.contaSel);
   if (S.mesExt==null) S.mesExt = hy===S.ano ? hm : 1;
   const tot=sum(S.contas.map(c=>saldoEm(c,hoje,EV)));
+  const devem=r2(sum(S.lanc.filter(l=>catById(l.categoria_id)?.tipo==="terceiros").map(l=>Number(l.valor))) + sum(S.fixosAll.filter(f=>catById(f.categoria_id)?.tipo==="terceiros").map(f=>Number(f.valor)*(f.mes_fim-f.mes_inicio+1))));
   const semConta=S.formas.filter(f=>f.tipo==="cartao"&&!f.conta_id);
   const semContaL=S.lanc.filter(l=>Number(l.data.slice(0,4))===S.ano && formaById(l.forma_id)?.tipo!=="cartao" && !l.conta_id).length;
   const cards=S.contas.map(c=>{ const sh=saldoEm(c,hoje,EV), pv=saldoEm(c,fimMes,EV), u=ultimaConc(c); const d=u?r2(u.saldo_banco-u.saldo_app):null;
@@ -676,7 +680,7 @@ function contas(){
   const hist=S.concs.filter(c=>c.conta_id===sel.id).slice().sort((a,b)=>b.data.localeCompare(a.data)||b.id-a.id);
 
   $("#view").innerHTML=`<div class="head"><h1>Contas</h1><div class="spacer"></div><button class="btn" id="btTransf">${ICON.swap}Transferir</button></div>
-  <p class="muted" style="margin-top:-8px">Saldo hoje em todas as contas: <b class="${tot<0?"neg":""}">${brl(tot)}</b></p>
+  <p class="muted" style="margin-top:-8px">Saldo hoje em todas as contas: <b class="${tot<0?"neg":""}">${brl(tot)}</b>${devem>0.005?` · Te devem: <b>${brl(devem)}</b>`:""}</p>
   ${semConta.length?`<div class="alert">As faturas de ${semConta.map(f=>esc(f.nome)).join(", ")} não saem de nenhuma conta. Escolha a conta que paga em <button class="link" data-go="config">Configurações</button>.</div>`:""}
   ${semContaL?`<div class="alert">${semContaL} lançamento(s) à vista de ${S.ano} estão sem conta e não entram nos saldos. Abra o lançamento e escolha a conta.</div>`:""}
   <div class="grid g-acc">${cards}</div>
