@@ -178,6 +178,8 @@ input[type=color]{width:36px;height:30px;padding:2px;border-radius:8px;cursor:po
 .acc .st{font-size:12px}
 .ok{color:var(--receita)}
 .g-acc{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.orc-in{width:92px;text-align:right}
+.orc-in.own{color:var(--primary-strong);font-weight:700}
 .ext .item{grid-template-columns:1fr auto auto}
 .ext .sal{min-width:96px;text-align:right;color:var(--muted);font-size:12px}
 .ext .fut{opacity:.55}
@@ -304,13 +306,14 @@ async function loadAll(){
   }catch(e){ $("#view").innerHTML=`<div class="empty">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 async function loadYear(){
-  const [lanc, fixos, transf, concs] = await Promise.all([
+  const [lanc, fixos, transf, concs, orcs] = await Promise.all([
     fetchAll("lancamentos", q=>q.order("data",{ascending:false}).order("id",{ascending:false})),
     fetchAll("fixos", q=>q.order("id")),
     fetchAll("transferencias", q=>q.order("data").order("id")),
     fetchAll("conciliacoes", q=>q.order("data").order("id")),
+    fetchAll("orcamentos", q=>q.eq("ano",S.ano)),
   ]);
-  S.lanc=lanc; S.fixosAll=fixos; S.transf=transf; S.concs=concs; syncFixos();
+  S.lanc=lanc; S.fixosAll=fixos; S.transf=transf; S.concs=concs; S.orcs=orcs; syncFixos();
   $("#yLabel").textContent=S.ano;
   if (S.mes==null){ const d=new Date(); S.mes = d.getFullYear()===S.ano ? d.getMonth()+1 : 1; }
   render();
@@ -320,6 +323,8 @@ async function setAno(a){ S.ano=a; S.mes=null; S.filtroMes=null; await sb.from("
 $("#yPrev").onclick=()=>setAno(S.ano-1); $("#yNext").onclick=()=>setAno(S.ano+1);
 
 const catById = id => S.cats.find(c=>c.id===id);
+/* orçamento do mês: valor específico do mês, senão o padrão da categoria */
+function orcMes(c,m){ const o=(S.orcs||[]).find(x=>x.categoria_id===c.id && x.ano===S.ano && x.mes===m); if (o) return Number(o.valor); return c.orcamento==null?null:Number(c.orcamento); }
 const PALETA=["#0f766e","#b45309","#7c3aed","#be123c","#1d4ed8","#4d7c0f","#c2410c","#0e7490","#a21caf","#475569"];
 function corForma(f){ if (!f) return "#94a3b8"; if (f.cor) return f.cor; return PALETA[(S.formas.indexOf(f)+PALETA.length)%PALETA.length]; }
 function iniciais(n){ const w=String(n||"?").trim().split(/\s+/).filter(Boolean); return (w.length>1? w[0][0]+w[1][0] : w[0].slice(0,2)).toUpperCase(); }
@@ -396,7 +401,7 @@ function painel(){
   const recA=sum(A.tipoMes.receita), desA=sum(A.tipoMes.despesa), invA=sum(A.tipoMes.investimento);
   const semFech = S.formas.some(f=>f.tipo==="cartao" && f.fechamento==null);
   const gs=grupos().filter(g=>S.cats.some(c=>c.grupo===g && (c.tipo==="despesa"||c.tipo==="investimento")));
-  const rows=gs.map(g=>{ const cs=S.cats.filter(c=>c.grupo===g); const orc=sum(cs.map(c=>Number(c.orcamento||0))); const real=sum(cs.map(c=>(A.porCat[c.id]||[])[m]||0)); return {g,orc,real}; }).filter(r=>r.orc||r.real);
+  const rows=gs.map(g=>{ const cs=S.cats.filter(c=>c.grupo===g); const orc=sum(cs.map(c=>orcMes(c,m)||0)); const real=sum(cs.map(c=>(A.porCat[c.id]||[])[m]||0)); return {g,orc,real}; }).filter(r=>r.orc||r.real);
   const top = Object.entries(A.porCat).map(([id,a])=>({c:catById(Number(id)),v:a[m]})).filter(x=>x.c&&x.c.tipo==="despesa"&&x.v>0).sort((a,b)=>b.v-a.v).slice(0,6);
   $("#view").innerHTML = `
   <div class="head"><h1>${MESES[m-1]} de ${S.ano}</h1></div>
@@ -558,21 +563,48 @@ function editFixo(f){
 
 /* ---------- Resumo ---------- */
 function resumo(){
-  const A=agregados(); const rec=sum(A.tipoMes.receita);
-  const cell=(v,orc,tipo)=>{ const over = tipo!=="receita" && orc>0 && v>orc+0.005; return `<td class="n ${over?"over":v?"":"zero"}">${v?brl(v):"–"}</td>`; };
+  const A=agregados(); const rec=sum(A.tipoMes.receita); const modo=S.resModo||"real";
+  const O={}; for (const c of S.cats){ O[c.id]=[0]; for (let m=1;m<=12;m++) O[c.id][m]=orcMes(c,m)||0; }
+  const tipoO=t=>{ const a=Array(13).fill(0); S.cats.filter(c=>c.tipo===t).forEach(c=>O[c.id].forEach((v,i)=>{ if(i) a[i]+=v; })); return a; };
+  const oRec=tipoO("receita"), oDes=tipoO("despesa"), oInv=tipoO("investimento"), oSob=oRec.map((v,i)=>v-oDes[i]-oInv[i]);
+  const val=(real,orc)=> modo==="real"?real : modo==="orc"?orc : orc-real;
+  const fmtC=(v,cls="")=>`<td class="n ${cls} ${v<-0.004?"neg":""} ${Math.abs(v)<0.005?"zero":""}">${Math.abs(v)<0.005?"–":brl(v)}</td>`;
+  const linha=(lab,ra,oa,cls="")=>{ const arr=ra.map((v,i)=>val(v,oa[i])); return `<tr class="${cls}"><td class="first">${lab}</td>${arr.slice(1).map(v=>fmtC(v)).join("")}<td class="n">${brl(sum(arr.slice(1)))}</td><td class="n">${modo==="real"&&rec?pct(sum(ra)/rec):""}</td></tr>`; };
   let body="";
-  const linha=(lab,arr,cls="")=>`<tr class="${cls}"><td class="first">${lab}</td><td class="n"></td>${arr.slice(1).map(v=>`<td class="n ${v<0?"neg":""}">${brl(v)}</td>`).join("")}<td class="n">${brl(sum(arr))}</td><td class="n">${rec?pct(sum(arr)/rec):"–"}</td></tr>`;
-  body+=linha("Receitas",A.tipoMes.receita)+linha("Despesas",A.tipoMes.despesa)+linha("Investimentos",A.tipoMes.investimento)+linha("Sobrou no mês",A.res,"tot");
-  if (A.tipoMes.terceiros.some(v=>v)) body+=linha("Terceiros (gasto por outros − devolvido)",A.tipoMes.terceiros);
-  body+=`<tr><td class="first">Saldo acumulado</td><td></td>${A.saldo.slice(1).map(v=>`<td class="n ${v<0?"neg":""}">${brl(v)}</td>`).join("")}<td class="n">${brl(A.saldo[12])}</td><td></td></tr>`;
+  body+=linha("Receitas",A.tipoMes.receita,oRec)+linha("Despesas",A.tipoMes.despesa,oDes)+linha("Investimentos",A.tipoMes.investimento,oInv)+linha("Sobrou no mês",A.res,oSob,"tot");
+  if (modo==="real") body+=`<tr><td class="first">Saldo acumulado</td>${A.saldo.slice(1).map(v=>fmtC(v)).join("")}<td class="n">${brl(A.saldo[12])}</td><td></td></tr>`;
+  if (modo==="real" && A.tipoMes.terceiros.some(v=>v)) body+=linha("Terceiros (gasto por outros − devolvido)",A.tipoMes.terceiros,Array(13).fill(0));
   for (const g of grupos()){
-    const cs=S.cats.filter(c=>c.grupo===g); const ga=Array(13).fill(0); cs.forEach(c=>(A.porCat[c.id]||[]).forEach((v,i)=>ga[i]+=v)); const gorc=sum(cs.map(c=>Number(c.orcamento||0)));
-    body+=`<tr class="grp"><td class="first">${esc(g)}</td><td class="n">${gorc?brl(gorc):""}</td>${ga.slice(1).map(v=>`<td class="n">${v?brl(v):"–"}</td>`).join("")}<td class="n">${brl(sum(ga))}</td><td class="n">${rec?pct(sum(ga)/rec):"–"}</td></tr>`;
-    for (const c of cs){ const a=A.porCat[c.id]||Array(13).fill(0); const o=Number(c.orcamento||0);
-      body+=`<tr><td class="first" style="padding-left:22px">${esc(c.nome)}</td><td class="n muted">${o?brl(o):""}</td>${a.slice(1).map(v=>cell(v,o,c.tipo)).join("")}<td class="n">${brl(sum(a))}</td><td class="n">${rec?pct(sum(a)/rec):"–"}</td></tr>`; }
+    const cs=S.cats.filter(c=>c.grupo===g); if (modo!=="real" && cs.every(c=>c.tipo==="terceiros")) continue;
+    const ga=Array(13).fill(0), go=Array(13).fill(0); cs.forEach(c=>{ (A.porCat[c.id]||[]).forEach((v,i)=>ga[i]+=v); O[c.id].forEach((v,i)=>go[i]+=v); });
+    const gv=ga.map((v,i)=>val(v,go[i]));
+    body+=`<tr class="grp"><td class="first">${esc(g)}</td>${gv.slice(1).map(v=>fmtC(v)).join("")}<td class="n">${brl(sum(gv.slice(1)))}</td><td class="n">${modo==="real"&&rec?pct(sum(ga)/rec):""}</td></tr>`;
+    for (const c of cs){ const a=A.porCat[c.id]||Array(13).fill(0);
+      let cells="";
+      for (let m=1;m<=12;m++){
+        const r=a[m]||0, o=O[c.id][m];
+        if (modo==="orc"){ const own=(S.orcs||[]).some(x=>x.categoria_id===c.id&&x.mes===m&&x.ano===S.ano); cells+=`<td class="n"><input class="inline-input orc-in ${own?"own":""}" data-c="${c.id}" data-m="${m}" inputmode="decimal" value="${o?numIn(o):""}" placeholder="–" aria-label="Orçamento de ${esc(c.nome)} em ${MESES[m-1]}"></td>`; }
+        else if (modo==="dif"){ cells+= c.tipo==="receita" ? fmtC(r-o) : fmtC(o-r); }
+        else { const over = c.tipo==="despesa" && orcMes(c,m)!=null && r>o+0.005; cells+=`<td class="n ${over?"over":r?"":"zero"}">${r?brl(r):"–"}</td>`; }
+      }
+      const tot = modo==="real"?sum(a.slice(1)) : modo==="orc"?sum(O[c.id].slice(1)) : (c.tipo==="receita"?sum(a.slice(1))-sum(O[c.id].slice(1)):sum(O[c.id].slice(1))-sum(a.slice(1)));
+      body+=`<tr><td class="first" style="padding-left:22px">${esc(c.nome)}</td>${cells}<td class="n">${brl(tot)}</td><td class="n">${modo==="real"&&rec?pct(sum(a)/rec):""}</td></tr>`; }
   }
-  $("#view").innerHTML=`<div class="head"><h1>Resumo de ${S.ano}</h1></div><p class="muted" style="margin-top:-8px">Valores no mês em que são pagos. Em vermelho, o mês em que a categoria passou do orçamento.</p>
-  <div class="tbl-wrap" style="max-height:calc(100dvh - 210px)"><table><thead><tr><th class="first">Categoria</th><th class="n">Orçado/mês</th>${M3.map(m=>`<th class="n">${m}</th>`).join("")}<th class="n">Total</th><th class="n">% receita</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  const legenda = modo==="real" ? "Valores no mês em que são pagos. Em vermelho, o mês em que a categoria passou do orçamento."
+    : modo==="orc" ? "Quanto você planeja gastar em cada categoria, mês a mês. Toque num valor para mudar. Apague o valor para voltar ao padrão da categoria (em Configurações). Valores em verde foram ajustados só para aquele mês."
+    : "Orçado menos gasto. Positivo é o que ainda sobra; em vermelho, o quanto passou. Em receitas, positivo é o que entrou a mais.";
+  $("#view").innerHTML=`<div class="head"><h1>Resumo de ${S.ano}</h1><div class="spacer"></div><div class="seg" id="resSeg"><button type="button" data-m="real" aria-pressed="${modo==="real"}">Realizado</button><button type="button" data-m="orc" aria-pressed="${modo==="orc"}">Orçamento</button><button type="button" data-m="dif" aria-pressed="${modo==="dif"}">Diferença</button></div></div>
+  <p class="muted" style="margin-top:-8px">${legenda}</p>
+  <div class="tbl-wrap" style="max-height:calc(100dvh - 230px)"><table><thead><tr><th class="first">Categoria</th>${M3.map(m=>`<th class="n">${m}</th>`).join("")}<th class="n">Total</th><th class="n">${modo==="real"?"% receita":""}</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  $("#resSeg").onclick=e=>{ const b=e.target.closest("button"); if (!b) return; const sc=$(".tbl-wrap"); const top=sc.scrollTop, left=sc.scrollLeft; S.resModo=b.dataset.m; render(); const n=$(".tbl-wrap"); n.scrollTop=top; n.scrollLeft=left; };
+  $("#view").querySelectorAll(".orc-in").forEach(inp=>inp.onchange=async()=>{
+    const cid=Number(inp.dataset.c), m=Number(inp.dataset.m), v=parseNum(inp.value);
+    const ex=(S.orcs||[]).find(x=>x.categoria_id===cid&&x.ano===S.ano&&x.mes===m);
+    if (v==null){ if (ex){ const {error}=await sb.from("orcamentos").delete().eq("id",ex.id); if (error) return fail(error); S.orcs=S.orcs.filter(x=>x!==ex); } }
+    else { const r=await sb.from("orcamentos").upsert({categoria_id:cid,ano:S.ano,mes:m,valor:v},{onConflict:"categoria_id,ano,mes"}).select().single(); if (r.error) return fail(r.error); S.orcs=(S.orcs||[]).filter(x=>!(x.categoria_id===cid&&x.ano===S.ano&&x.mes===m)).concat(r.data); }
+    const sc=$(".tbl-wrap"); const top=sc.scrollTop, left=sc.scrollLeft, next=inp.closest("td")?.nextElementSibling?.querySelector("input");
+    toast("Orçamento salvo"); render(); const n=$(".tbl-wrap"); n.scrollTop=top; n.scrollLeft=left;
+  });
 }
 
 /* ---------- Cartões ---------- */
@@ -775,7 +807,7 @@ function config(){
   </tbody></table></div>
   <button class="btn" id="addForma" style="margin-bottom:24px">${ICON.plus}Adicionar</button>
   <h2>Categorias e orçamento mensal</h2>
-  <div class="tbl-wrap" style="margin-bottom:8px"><table><thead><tr><th>Categoria</th><th>Grupo</th><th>Tipo</th><th>Orçamento/mês</th><th></th></tr></thead><tbody>
+  <div class="tbl-wrap" style="margin-bottom:8px"><table><thead><tr><th>Categoria</th><th>Grupo</th><th>Tipo</th><th>Orçamento padrão/mês</th><th></th></tr></thead><tbody>
   ${S.cats.map(c=>`<tr data-id="${c.id}" data-t="categorias"><td><input class="inline-input w-l" data-k="nome" value="${esc(c.nome)}"></td><td><input class="inline-input w-l" data-k="grupo" list="glist" value="${esc(c.grupo)}"></td>
   <td><select class="inline-input" data-k="tipo">${Object.entries(TIPO_LABEL).map(([k,v])=>`<option value="${k}" ${k===c.tipo?"selected":""}>${v}</option>`).join("")}</select></td>
   <td><input class="inline-input" data-k="orcamento" inputmode="decimal" value="${numIn(c.orcamento)}" placeholder="—"></td><td><button class="icon-btn" data-del title="Excluir" aria-label="Excluir">${ICON.trash}</button></td></tr>`).join("")}
