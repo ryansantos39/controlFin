@@ -158,9 +158,22 @@ dialog .actions .spacer{flex:1}
 .inline-input{padding:5px 8px;border-radius:8px;width:110px}
 .inline-input.w-l{width:170px}
 .inline-input.w-s{width:64px}
+.cb{--c:#64748b;display:inline-grid;place-items:center;flex:none;width:34px;height:24px;border-radius:6px;background:var(--c);color:#fff;font-size:10px;font-weight:800;letter-spacing:.02em;line-height:1;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);position:relative;overflow:hidden}
+.cb.dark{color:#111}
+.cb:not(.av){padding-left:9px}
+.cb.sm:not(.av){padding-left:7px}
+.cb::after{content:"";position:absolute;left:4px;top:5px;width:7px;height:5px;border-radius:1.5px;background:rgba(255,255,255,.55)}
+.cb.av{border-radius:50%;width:24px}
+.cb.av::after{display:none}
+.cb.sm{width:26px;height:18px;font-size:8px}.cb.sm::after{left:3px;top:3px;width:5px;height:4px}
+.cb.sm.av{width:18px}
+.who-f{display:inline-flex;align-items:center;gap:8px}
+.lead{display:flex;gap:12px;align-items:center;min-width:0}
+.lead>div{min-width:0}
+input[type=color]{width:36px;height:30px;padding:2px;border-radius:8px;cursor:pointer}
 .loading{padding:60px;text-align:center;color:var(--muted)}
 @media (prefers-reduced-motion:no-preference){.fill{transition:width .4s ease}}
-@media (max-width:560px){.form-grid{grid-template-columns:1fr}.top-row .who{display:none}h1{font-size:19px}}
+@media (max-width:560px){.item .tag{display:none}.form-grid{grid-template-columns:1fr}.top-row .who{display:none}h1{font-size:19px}}
 </style>
 </head>
 <body>
@@ -290,6 +303,12 @@ async function setAno(a){ S.ano=a; S.mes=null; S.filtroMes=null; await sb.from("
 $("#yPrev").onclick=()=>setAno(S.ano-1); $("#yNext").onclick=()=>setAno(S.ano+1);
 
 const catById = id => S.cats.find(c=>c.id===id);
+const PALETA=["#0f766e","#b45309","#7c3aed","#be123c","#1d4ed8","#4d7c0f","#c2410c","#0e7490","#a21caf","#475569"];
+function corForma(f){ if (!f) return "#94a3b8"; if (f.cor) return f.cor; return PALETA[(S.formas.indexOf(f)+PALETA.length)%PALETA.length]; }
+function iniciais(n){ const w=String(n||"?").trim().split(/\s+/).filter(Boolean); return (w.length>1? w[0][0]+w[1][0] : w[0].slice(0,2)).toUpperCase(); }
+function claro(hex){ const n=parseInt(hex.slice(1),16), r=n>>16&255,g=n>>8&255,b=n&255; return (0.299*r+0.587*g+0.114*b)>165; }
+function badge(f,sm){ if (!f) return `<span class="cb av ${sm?"sm":""}" style="--c:#94a3b8" title="Sem forma">–</span>`; const c=corForma(f); return `<span class="cb ${f.tipo==="cartao"?"":"av"} ${sm?"sm":""} ${claro(c)?"dark":""}" style="--c:${c}" title="${esc(f.nome)}" aria-hidden="true">${esc(iniciais(f.nome))}</span>`; }
+const formaTag = (f,sm) => `<span class="who-f">${badge(f,sm)}${esc(f?.nome||"—")}</span>`;
 const formaById = id => S.formas.find(f=>f.id===id);
 
 /* mês (1..12 relativo ao ano; pode sair do intervalo) em que a 1ª parcela é cobrada */
@@ -432,7 +451,7 @@ function lancamentos(){
 function itemLanc(l){
   const c=catById(l.categoria_id), f=formaById(l.forma_id), n=Math.max(1,l.parcelas), i0=idxCobranca(l);
   const cob = n>1 ? `${n}x de ${brl(l.valor/n)} · 1ª em ${nomeIdx(i0)}` : (f?.tipo==="cartao" ? `fatura de ${nomeIdx(i0)}` : "");
-  return `<div class="item" data-edit="${l.id}" style="cursor:pointer"><div><div class="t">${esc(l.descricao||c?.nome||"Sem descrição")}</div><div class="m">${esc(c?.nome||"?")} · ${esc(f?.nome||"sem forma")}${cob?" · "+cob:""}</div></div><span class="tag ${c?.tipo||""}">${TIPO_LABEL[c?.tipo]||"?"}</span><div class="v ${c?.tipo==="receita"?"":""}">${brl(l.valor)}</div></div>`;
+  return `<div class="item" data-edit="${l.id}" style="cursor:pointer"><div class="lead">${badge(f)}<div><div class="t">${esc(l.descricao||c?.nome||"Sem descrição")}</div><div class="m">${esc(c?.nome||"?")} · ${esc(f?.nome||"sem forma")}${cob?" · "+cob:""}</div></div></div><span class="tag ${c?.tipo||""}">${TIPO_LABEL[c?.tipo]||"?"}</span><div class="v ${c?.tipo==="receita"?"":""}">${brl(l.valor)}</div></div>`;
 }
 function catOptions(sel){ return grupos().map(g=>`<optgroup label="${esc(g)}">${S.cats.filter(c=>c.grupo===g).map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${esc(c.nome)}</option>`).join("")}</optgroup>`).join(""); }
 function formaOptions(sel){ return `<option value="">—</option><optgroup label="Cartões">${S.formas.filter(f=>f.tipo==="cartao").map(f=>`<option value="${f.id}" ${f.id===sel?"selected":""}>${esc(f.nome)}</option>`).join("")}</optgroup><optgroup label="À vista">${S.formas.filter(f=>f.tipo!=="cartao").map(f=>`<option value="${f.id}" ${f.id===sel?"selected":""}>${esc(f.nome)}</option>`).join("")}</optgroup>`; }
@@ -476,7 +495,7 @@ function fixos(){
   $("#view").innerHTML=`<div class="head"><h1>Fixos de ${S.ano}</h1><div class="spacer"></div><button class="btn primary" id="novo">${ICON.plus}Novo</button></div>
   <p class="muted" style="margin-top:-8px">Contas que se repetem todo mês. Lance uma vez com o mês de início e de fim, sem precisar repetir em Lançamentos.</p>
   ${S.fixos.length?`<div class="tbl-wrap"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="n">Valor/mês</th><th>Meses</th><th class="n">Total no ano</th></tr></thead><tbody>
-  ${S.fixos.map(f=>{const c=catById(f.categoria_id); return `<tr data-edit="${f.id}" style="cursor:pointer"><td><b>${esc(f.descricao)}</b></td><td>${esc(c?.nome||"?")} <span class="tag ${c?.tipo}">${TIPO_LABEL[c?.tipo]||""}</span></td><td>${esc(formaById(f.forma_id)?.nome||"—")}</td><td class="n">${brl(f.valor)}</td><td>${M3[f.mes_inicio-1]} a ${M3[f.mes_fim-1]}</td><td class="n">${brl(f.valor*(f.mes_fim-f.mes_inicio+1))}</td></tr>`;}).join("")}
+  ${S.fixos.map(f=>{const c=catById(f.categoria_id); return `<tr data-edit="${f.id}" style="cursor:pointer"><td><b>${esc(f.descricao)}</b></td><td>${esc(c?.nome||"?")} <span class="tag ${c?.tipo}">${TIPO_LABEL[c?.tipo]||""}</span></td><td>${formaTag(formaById(f.forma_id),true)}</td><td class="n">${brl(f.valor)}</td><td>${M3[f.mes_inicio-1]} a ${M3[f.mes_fim-1]}</td><td class="n">${brl(f.valor*(f.mes_fim-f.mes_inicio+1))}</td></tr>`;}).join("")}
   </tbody></table></div>
   <p class="muted small" style="margin-top:12px">Por mês: receitas fixas ${brl(tot("receita"))} · despesas fixas ${brl(tot("despesa"))} · investimento fixo ${brl(tot("investimento"))}</p>`
   :`<div class="card empty">Nenhum fixo em ${S.ano}. ${S.fixos.length===0&&S.ano!==2027?`<br><br><button class="btn" id="copiar">${ICON.copy}Copiar de ${S.ano-1}</button>`:""}</div>`}`;
@@ -535,10 +554,10 @@ function cartoes(){
   const itens=A.mv.filter(x=>x.mes===m && formaById(x.forma)?.tipo==="cartao" && catById(x.cat)?.tipo!=="receita");
   let det="";
   for (const f of cards){ const its=itens.filter(x=>x.forma===f.id); if (!its.length) continue; const t=sum(its.map(x=>x.valor)); const p=f.limite?t/f.limite:null;
-    det+=`<div class="card" style="padding:0"><div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);gap:8px;flex-wrap:wrap"><b>${esc(f.nome)}</b><span><b>${brl(t)}</b>${p!=null?` <span class="small ${p>1?"neg":"muted"}">${pct(p)} do limite</span>`:""}</span></div><div class="list">${its.map(x=>{const r=x.ref,c=catById(x.cat); return `<div class="item"><div><div class="t">${esc(r.descricao||c?.nome)}</div><div class="m">${esc(c?.nome||"")}${x.origem==="f"?" · fixo":` · compra em ${r.data.split("-").reverse().join("/")}`}${x.parcela?" · parcela "+x.parcela:""}</div></div><span></span><div class="v">${brl(x.valor)}</div></div>`}).join("")}</div></div>`; }
+    det+=`<div class="card" style="padding:0"><div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);gap:8px;flex-wrap:wrap;align-items:center"><span class="who-f">${badge(f)}<b>${esc(f.nome)}</b></span><span><b>${brl(t)}</b>${p!=null?` <span class="small ${p>1?"neg":"muted"}">${pct(p)} do limite</span>`:""}</span></div><div class="list">${its.map(x=>{const r=x.ref,c=catById(x.cat); return `<div class="item"><div><div class="t">${esc(r.descricao||c?.nome)}</div><div class="m">${esc(c?.nome||"")}${x.origem==="f"?" · fixo":` · compra em ${r.data.split("-").reverse().join("/")}`}${x.parcela?" · parcela "+x.parcela:""}</div></div><span></span><div class="v">${brl(x.valor)}</div></div>`}).join("")}</div></div>`; }
   $("#view").innerHTML=`<div class="head"><h1>Cartões</h1></div>
   <div class="tbl-wrap"><table><thead><tr><th class="first">Cartão</th><th class="n">Limite</th>${M3.map((x,i)=>`<th class="n" style="${i+1===m?"color:var(--primary-strong)":""}">${x}</th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
-  ${S.formas.map(f=>{const a=A.porForma[f.id]||Array(13).fill(0); return `<tr><td class="first"><b>${esc(f.nome)}</b> ${f.tipo==="cartao"?"":'<span class="tag">à vista</span>'}</td><td class="n muted">${f.limite?brl(f.limite):""}</td>${a.slice(1).map(v=>{const over=f.limite&&v>f.limite; return `<td class="n ${over?"over":v?"":"zero"}">${v?brl(v):"–"}</td>`}).join("")}<td class="n">${brl(sum(a))}</td></tr>`;}).join("")}
+  ${S.formas.map(f=>{const a=A.porForma[f.id]||Array(13).fill(0); return `<tr><td class="first"><span class="who-f">${badge(f,true)}<b>${esc(f.nome)}</b></span> ${f.tipo==="cartao"?"":'<span class="tag">à vista</span>'}</td><td class="n muted">${f.limite?brl(f.limite):""}</td>${a.slice(1).map(v=>{const over=f.limite&&v>f.limite; return `<td class="n ${over?"over":v?"":"zero"}">${v?brl(v):"–"}</td>`}).join("")}<td class="n">${brl(sum(a))}</td></tr>`;}).join("")}
   </tbody></table></div>
   <h2 style="margin-top:24px">Faturas de ${MESES[m-1]}</h2>
   ${monthChips(m,false)}
@@ -555,8 +574,8 @@ function config(){
   </div></div>
   <h2>Cartões e formas de pagamento</h2>
   <p class="muted small" style="margin-top:-6px">Compras feitas depois do dia de fechamento vão para a fatura seguinte.</p>
-  <div class="tbl-wrap" style="margin-bottom:8px"><table><thead><tr><th>Nome</th><th>Tipo</th><th>Fechamento</th><th>Vencimento</th><th>Limite</th><th></th></tr></thead><tbody>
-  ${S.formas.map(f=>`<tr data-id="${f.id}" data-t="formas"><td><input class="inline-input w-l" data-k="nome" value="${esc(f.nome)}"></td><td><select class="inline-input" data-k="tipo"><option value="cartao" ${f.tipo==="cartao"?"selected":""}>Cartão</option><option value="avista" ${f.tipo!=="cartao"?"selected":""}>À vista</option></select></td>
+  <div class="tbl-wrap" style="margin-bottom:8px"><table><thead><tr><th>Cor</th><th>Nome</th><th>Tipo</th><th>Fechamento</th><th>Vencimento</th><th>Limite</th><th></th></tr></thead><tbody>
+  ${S.formas.map(f=>`<tr data-id="${f.id}" data-t="formas"><td><span class="who-f">${badge(f)}<input type="color" data-k="cor" value="${corForma(f)}" aria-label="Cor de ${esc(f.nome)}"></span></td><td><input class="inline-input w-l" data-k="nome" value="${esc(f.nome)}"></td><td><select class="inline-input" data-k="tipo"><option value="cartao" ${f.tipo==="cartao"?"selected":""}>Cartão</option><option value="avista" ${f.tipo!=="cartao"?"selected":""}>À vista</option></select></td>
   <td><input class="inline-input w-s" data-k="fechamento" type="number" min="1" max="31" value="${f.fechamento??""}" ${f.tipo!=="cartao"?"disabled":""} placeholder="dia"></td><td><input class="inline-input w-s" data-k="vencimento" type="number" min="1" max="31" value="${f.vencimento??""}" ${f.tipo!=="cartao"?"disabled":""} placeholder="dia"></td>
   <td><input class="inline-input" data-k="limite" inputmode="decimal" value="${numIn(f.limite)}" ${f.tipo!=="cartao"?"disabled":""}></td><td><button class="icon-btn" data-del title="Excluir" aria-label="Excluir">${ICON.trash}</button></td></tr>`).join("")}
   </tbody></table></div>
@@ -570,13 +589,14 @@ function config(){
   <datalist id="glist">${grupos().map(g=>`<option value="${esc(g)}">`).join("")}</datalist>
   <button class="btn" id="addCat">${ICON.plus}Adicionar</button>
   <p class="muted small" style="margin-top:24px">As alterações são salvas assim que você sai do campo.</p>`;
+  $("#view").querySelectorAll('input[type=color]').forEach(inp=>inp.oninput=()=>{ const b=inp.previousElementSibling; b.style.setProperty("--c",inp.value); b.classList.toggle("dark",claro(inp.value)); });
   $("#cSaldo").onchange=async e=>{ const v=parseNum(e.target.value)??0; const {error}=await sb.from("config").update({saldo_inicial:v}).eq("user_id",S.user.id); if (error) return fail(error); S.cfg.saldo_inicial=v; toast("Saldo inicial salvo"); };
   $("#view").querySelectorAll("tr[data-id] [data-k]").forEach(inp=>inp.onchange=async()=>{
     const tr=inp.closest("tr"), t=tr.dataset.t, id=Number(tr.dataset.id), k=inp.dataset.k; let v=inp.value.trim();
     if (["orcamento","limite"].includes(k)) v=parseNum(v); if (["fechamento","vencimento"].includes(k)) v=v?Number(v):null;
     if (k==="nome"&&!v) return toast("O nome não pode ficar vazio.");
     const {data,error}=await sb.from(t).update({[k]:v}).eq("id",id).select().single(); if (error) return fail(error);
-    const arr=t==="formas"?S.formas:S.cats; const i=arr.findIndex(x=>x.id===id); arr[i]=data; toast("Salvo"); if (k==="tipo"||k==="grupo") render();
+    const arr=t==="formas"?S.formas:S.cats; const i=arr.findIndex(x=>x.id===id); arr[i]=data; toast("Salvo"); if (["tipo","grupo","cor","nome"].includes(k)&&t==="formas"||k==="tipo"||k==="grupo") render();
   });
   $("#view").querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
     const tr=b.closest("tr"), t=tr.dataset.t, id=Number(tr.dataset.id);
