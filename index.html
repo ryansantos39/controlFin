@@ -335,6 +335,8 @@ const formaById = id => S.formas.find(f=>f.id===id);
 
 /* mês (1..12 relativo ao ano; pode sair do intervalo) em que a 1ª parcela é cobrada */
 function absCobranca(l){
+  const f0 = formaById(l.forma_id);
+  if (l.primeira_fatura && f0?.tipo==="cartao"){ const [py,pm]=l.primeira_fatura.split("-").map(Number); return py*12+(pm-1); }
   const [y,m,d] = l.data.split("-").map(Number);
   let a = y*12 + (m-1);
   const f = formaById(l.forma_id);
@@ -486,6 +488,7 @@ function editLanc(l){
     <label class="f full">Descrição<input id="fDesc" value="${esc(l.descricao)}" placeholder="Ex.: Mercado, Tênis, Uber" autocomplete="off"></label>
     <label class="f">Valor total<input id="fValor" inputmode="decimal" value="${numIn(l.valor)}" placeholder="0,00" required></label>
     <label class="f">Data da compra<input id="fData" type="date" value="${l.data}" required></label>
+    <label class="f full" id="fPfWrap">Fatura da 1ª parcela<select id="fPf"><option value="">Automático, pelo fechamento do cartão</option>${(()=>{ let o=""; for (let k=-2;k<=14;k++){ const t=S.ano*12+k; const y=Math.floor(t/12), mm=t%12+1; const v=`${y}-${pad2(mm)}-01`; o+=`<option value="${v}" ${l.primeira_fatura===v?"selected":""}>${MESES[mm-1]} de ${y}</option>`; } return o; })()}</select></label>
     <label class="f">Categoria<select id="fCat" required><option value="">Escolha…</option>${catOptions(l.categoria_id)}</select></label>
     <label class="f">Cartão / forma<select id="fForma">${formaOptions(l.forma_id)}</select></label>
     <label class="f" id="fContaWrap">Conta<select id="fConta">${contaOptions(isNew?lastConta():l.conta_id)}</select></label>
@@ -495,19 +498,20 @@ function editLanc(l){
   <div class="preview" id="fPrev"></div>
   <div class="actions">${isNew?"":`<button type="button" class="btn danger" id="fDel">${ICON.trash}Excluir</button>`}<div class="spacer"></div><button type="button" class="btn ghost" id="fCancel">Cancelar</button><button type="submit" class="btn primary" value="ok">${ICON.check}Salvar</button></div>`;
   const prev=()=>{ const v=parseNum($("#fValor").value), n=Math.max(1,Number($("#fParc").value)||1), fo=Number($("#fForma").value)||null, d=$("#fData").value;
-    const card=formaById(fo)?.tipo==="cartao"; $("#fContaWrap").hidden=card;
+    const card=formaById(fo)?.tipo==="cartao"; $("#fContaWrap").hidden=card; $("#fPfWrap").hidden=!card;
     if (!v||!d){ $("#fPrev").textContent="Estorno ou reembolso: use valor negativo na mesma categoria da compra."; return; }
-    const i0=idxCobranca({data:d,forma_id:fo}); const ct=contaById(Number($("#fConta").value)), rec=catById(Number($("#fCat").value))?.tipo==="receita";
+    const i0=idxCobranca({data:d,forma_id:fo,primeira_fatura:$("#fPf").value||null}); const ct=contaById(Number($("#fConta").value)), rec=catById(Number($("#fCat").value))?.tipo==="receita";
     const onde = card ? (formaById(fo).conta_id?` A fatura é paga pela conta ${esc(contaById(formaById(fo).conta_id)?.nome||"")}.`:"") : (ct?` ${rec?"Entra na":"Sai da"} conta <b>${esc(ct.nome)}</b>.`:" Não mexe no saldo de nenhuma conta.");
     const terc=catById(Number($("#fCat").value))?.tipo==="terceiros";
     $("#fPrev").innerHTML = (terc?"Gasto de outra pessoa: não entra nas suas despesas. Quando te devolverem, lance com <b>valor negativo</b> nesta categoria, na conta onde o dinheiro entrou.<br>":"") + (n>1 ? `${n} parcelas de <b>${brl(v/n)}</b>, de ${nomeIdx(i0)} a ${nomeIdx(i0+n-1)}.` : `Entra em <b>${nomeIdx(i0)}</b>${card?" (mês da fatura)":""}.`) + onde; };
-  ["fValor","fParc","fForma","fData","fConta","fCat"].forEach(id=>$("#"+id).addEventListener("input",prev)); prev();
+  ["fValor","fParc","fForma","fData","fConta","fCat","fPf"].forEach(id=>$("#"+id).addEventListener("input",prev)); prev();
   $("#fCancel").onclick=()=>$("#dlg").close();
   if (!isNew) $("#fDel").onclick=async()=>{ if ($("#fDel").dataset.sure!=="1"){ $("#fDel").dataset.sure="1"; $("#fDel").innerHTML=ICON.trash+"Confirmar"; return; } const {error}=await sb.from("lancamentos").delete().eq("id",l.id); if (error) return fail(error); S.lanc=S.lanc.filter(x=>x.id!==l.id); $("#dlg").close(); toast("Lançamento excluído"); render(); };
   F.onsubmit=async e=>{
     e.preventDefault();
     const row={data:$("#fData").value, descricao:$("#fDesc").value.trim(), categoria_id:Number($("#fCat").value)||null, forma_id:Number($("#fForma").value)||null, valor:parseNum($("#fValor").value), parcelas:Math.min(60,Math.max(1,Number($("#fParc").value)||1)), obs:$("#fObs").value.trim()||null};
     row.conta_id = formaById(row.forma_id)?.tipo==="cartao" ? null : (Number($("#fConta").value)||null);
+    row.primeira_fatura = formaById(row.forma_id)?.tipo==="cartao" ? ($("#fPf").value||null) : null;
     if (row.valor==null) return toast("Informe o valor."); if (!row.categoria_id) return toast("Escolha a categoria.");
     if (row.conta_id) { try{localStorage.setItem("cf.conta",row.conta_id)}catch(e){} }
     const r = isNew ? await sb.from("lancamentos").insert(row).select().single() : await sb.from("lancamentos").update(row).eq("id",l.id).select().single();
